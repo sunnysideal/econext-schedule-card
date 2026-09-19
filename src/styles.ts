@@ -87,6 +87,7 @@ export const cardStyles = css`
   /* Schedule row container */
   .schedule-container {
     width: 100%;
+    container-type: inline-size;
   }
 
   .schedule-row-wrapper {
@@ -146,14 +147,14 @@ export const cardStyles = css`
 
   /* Time labels below schedule */
   .time-labels {
-    display: none;
+    display: grid;
+    grid-template-columns: repeat(24, minmax(0, 1fr));
     gap: var(--cell-gap);
     margin-top: 6px;
     width: 100%;
   }
 
   .time-label {
-    flex: 1;
     min-width: 0;
     font-size: 10px;
     color: var(--secondary-text-color);
@@ -161,12 +162,6 @@ export const cardStyles = css`
     overflow: hidden;
   }
 
-  /* Hide labels when cells are too narrow */
-  @container (max-width: 500px) {
-    .time-label:nth-child(odd) {
-      visibility: hidden;
-    }
-  }
 
   /* Warning/error states */
   .warning {
@@ -195,40 +190,26 @@ export const cardStyles = css`
     color: var(--error-color, #db4437);
   }
 
-  /* Mobile responsiveness */
-  @media (max-width: 600px) {
-    .schedule-row { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  /* Respond to the actual Lovelace card width, not the browser viewport. */
+  @container (max-width: 600px) {
+    .schedule-row, .time-labels {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
     .schedule-cell { min-height: 48px; }
-
-    :host {
-      --cell-height: 32px;
-    }
-
-    .day-tab {
-      font-size: 11px;
-      padding: 6px 2px;
-    }
-
-    .time-label {
-      font-size: 9px;
-    }
-
-    ha-card {
-      padding: 12px;
-    }
+    .time-label { font-size: 10px; }
+    .time-label:nth-child(even) { visibility: hidden; }
   }
 
-  @media (max-width: 400px) {
-    :host {
-      --cell-height: 28px;
+  @container (max-width: 340px) {
+    .schedule-row, .time-labels {
+      grid-template-columns: repeat(8, minmax(0, 1fr));
     }
+    .time-label:nth-child(odd) { visibility: hidden; }
+    .time-label:nth-child(6n + 1) { visibility: visible; }
+  }
 
-    .day-tab {
-      font-size: 10px;
-    }
-
-    .time-label {
-      font-size: 8px;
-    }
+  @media (max-width: 600px) {
+    .day-tab { font-size: 11px; padding: 6px 2px; }
+    ha-card { padding: 12px; }
   }
 `;
