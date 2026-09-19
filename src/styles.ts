@@ -98,7 +98,8 @@ export const cardStyles = css`
   .schedule-row {
     display: grid;
     grid-template-columns: repeat(24, minmax(0, 1fr));
-    gap: var(--cell-gap);
+    column-gap: var(--cell-gap);
+    row-gap: 22px;
     width: 100%;
   }
 
@@ -112,6 +113,20 @@ export const cardStyles = css`
     border-radius: var(--border-radius);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     cursor: pointer;
+    position: relative;
+  }
+
+  .schedule-cell[data-time]::after {
+    content: attr(data-time);
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 100%;
+    color: var(--secondary-text-color);
+    font-size: 10px;
+    font-weight: normal;
+    text-align: left;
+    pointer-events: none;
   }
 
   .schedule-cell:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 1px; }
@@ -147,7 +162,7 @@ export const cardStyles = css`
 
   /* Time labels below schedule */
   .time-labels {
-    display: grid;
+    display: none;
     grid-template-columns: repeat(24, minmax(0, 1fr));
     gap: var(--cell-gap);
     margin-top: 6px;
@@ -192,7 +207,7 @@ export const cardStyles = css`
 
   /* Respond to the actual Lovelace card width, not the browser viewport. */
   @container (max-width: 600px) {
-    .schedule-row, .time-labels {
+    .schedule-row {
       grid-template-columns: repeat(12, minmax(0, 1fr));
     }
     .schedule-cell { min-height: 48px; }
@@ -201,7 +216,7 @@ export const cardStyles = css`
   }
 
   @container (max-width: 340px) {
-    .schedule-row, .time-labels {
+    .schedule-row {
       grid-template-columns: repeat(8, minmax(0, 1fr));
     }
     .time-label:nth-child(odd) { visibility: hidden; }
