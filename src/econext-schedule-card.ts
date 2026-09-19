@@ -68,13 +68,13 @@ export class EconextScheduleCard extends LitElement {
 
   public getCardSize(): number {
     // Title + tabs + schedule row + time labels + padding
-    return this._config?.title ? 4 : 3;
+    return this._config?.title ? 9 : 8;
   }
 
   public getLayoutOptions() {
     return {
-      grid_rows: this._config?.title ? 4 : 3,
-      grid_min_rows: this._config?.title ? 4 : 3,
+      grid_rows: this._config?.title ? 9 : 8,
+      grid_min_rows: this._config?.title ? 9 : 8,
     };
   }
 
@@ -431,6 +431,7 @@ export class EconextScheduleCard extends LitElement {
               type="button"
               ?disabled=${!editable}
               aria-label="${slotToTime(slotIndex)} ${active ? "active" : "inactive"}"
+              data-time=${slotIndex % 2 === 0 ? slotToTime(slotIndex) : nothing}
               aria-pressed=${active}
               class="schedule-cell ${classMap({
                 active,
@@ -457,6 +458,7 @@ export class EconextScheduleCard extends LitElement {
         ${Array.from({ length: SLOTS_PER_DAY }, () => html`
           <div
             class="schedule-cell inactive readonly"
+            data-time=${nothing}
             style="opacity: 0.3"
             title="No data"
           ></div>
