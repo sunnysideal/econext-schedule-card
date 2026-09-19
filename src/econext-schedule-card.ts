@@ -189,7 +189,7 @@ export class EconextScheduleCard extends LitElement {
             this._pendingValues = updated;
           }
           this._showError(entityId);
-        } else if (latest === value) {
+        } else if (latest === value && !this._debounceTimers.has(entityId)) {
           this._awaitAcknowledgement(entityId, value);
         } else if (latest !== undefined && latest !== value) {
           if (!this._sendQueue.includes(entityId) && !this._debounceTimers.has(entityId)) {
@@ -230,7 +230,7 @@ export class EconextScheduleCard extends LitElement {
     }
     const timer = setTimeout(() => {
       this._ackTimers.delete(entityId);
-      if (this._pendingValues.get(entityId) !== value) return;
+      if (this._pendingValues.get(entityId) !== value || this._inFlight.has(entityId) || this._sendQueue.includes(entityId) || this._debounceTimers.has(entityId)) return;
       if (this._getEntityValue(entityId) === value) {
         this._clearAcknowledged(entityId, value);
         return;
