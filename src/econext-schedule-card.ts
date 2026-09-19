@@ -37,6 +37,9 @@ export class EconextScheduleCard extends LitElement {
   private _debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private _sendQueue: string[] = [];
   private _queueProcessing = false;
+  private _inFlight: Map<string, number> = new Map();
+  private _ackTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private static readonly ACK_TIMEOUT_MS = 15000;
 
   private static readonly DEBOUNCE_MS = 500;
   private static readonly MAX_RETRIES = 2;
@@ -130,10 +133,14 @@ export class EconextScheduleCard extends LitElement {
     if (currentBitfield === null) return;
 
     const newValue = toggleBit(currentBitfield, bitIndex);
+    this._errorEntityIds = new Set([...this._errorEntityIds].filter(id => id !== entityId));
 
     this._pendingValues = new Map(this._pendingValues);
     this._pendingValues.set(entityId, newValue);
 
+    const ackTimer = this._ackTimers.get(entityId);
+    if (ackTimer) clearTimeout(ackTimer);
+    this._ackTimers.delete(entityId);
     this._scheduleSend(entityId);
   }
 
@@ -166,65 +173,84 @@ export class EconextScheduleCard extends LitElement {
   private async _processQueue(): Promise<void> {
     if (this._queueProcessing) return;
     this._queueProcessing = true;
-
     try {
       while (this._sendQueue.length > 0) {
-        const entityId = this._sendQueue[0];
+        const entityId = this._sendQueue.shift()!;
         const value = this._pendingValues.get(entityId);
-
-        if (value === undefined) {
-          this._sendQueue.shift();
-          continue;
-        }
-
+        if (value === undefined) continue;
+        this._inFlight.set(entityId, value);
         const success = await this._executeServiceCall(entityId, value);
-
+        this._inFlight.delete(entityId);
+        const latest = this._pendingValues.get(entityId);
         if (!success) {
-          const updated = new Map(this._pendingValues);
-          updated.delete(entityId);
-          this._pendingValues = updated;
+          if (latest === value) {
+            const updated = new Map(this._pendingValues);
+            updated.delete(entityId);
+            this._pendingValues = updated;
+          }
           this._showError(entityId);
+        } else if (latest === value && !this._debounceTimers.has(entityId)) {
+          this._awaitAcknowledgement(entityId, value);
+        } else if (latest !== undefined && latest !== value) {
+          if (!this._sendQueue.includes(entityId) && !this._debounceTimers.has(entityId)) {
+            this._sendQueue.push(entityId);
+          }
         }
-
-        this._sendQueue.shift();
-
-        // Wait between calls to let the controller finish processing
-        if (success && this._sendQueue.length > 0) {
-          await new Promise<void>(resolve =>
-            setTimeout(resolve, EconextScheduleCard.INTER_CALL_DELAY_MS)
-          );
+        if (this._sendQueue.length > 0) {
+          await new Promise<void>(resolve => setTimeout(resolve, EconextScheduleCard.INTER_CALL_DELAY_MS));
         }
       }
     } finally {
       this._queueProcessing = false;
+      if (this._sendQueue.length > 0) void this._processQueue();
     }
   }
 
   private async _executeServiceCall(entityId: string, value: number): Promise<boolean> {
     for (let attempt = 0; attempt <= EconextScheduleCard.MAX_RETRIES; attempt++) {
       try {
-        await this.hass.callService('number', 'set_value', {
-          entity_id: entityId,
-          value,
-        });
+        await this.hass.callService('number', 'set_value', { entity_id: entityId, value });
         return true;
       } catch (error) {
-        console.error(
-          `Failed to update ${entityId} (attempt ${attempt + 1}/${EconextScheduleCard.MAX_RETRIES + 1}):`,
-          error
-        );
-
+        console.error('Failed to update schedule', entityId, attempt + 1, error);
         if (attempt < EconextScheduleCard.MAX_RETRIES) {
-          const delay = EconextScheduleCard.RETRY_BASE_MS * Math.pow(2, attempt);
-          await new Promise<void>(resolve => setTimeout(resolve, delay));
-
-          const latestValue = this._pendingValues.get(entityId);
-          if (latestValue === undefined) return true;
-          value = latestValue;
+          await new Promise<void>(resolve => setTimeout(resolve, EconextScheduleCard.RETRY_BASE_MS * 2 ** attempt));
         }
       }
     }
     return false;
+  }
+
+  private _awaitAcknowledgement(entityId: string, value: number): void {
+    const existing = this._ackTimers.get(entityId);
+    if (existing) clearTimeout(existing);
+    if (this._getEntityValue(entityId) === value) {
+      this._clearAcknowledged(entityId, value);
+      return;
+    }
+    const timer = setTimeout(() => {
+      this._ackTimers.delete(entityId);
+      if (this._pendingValues.get(entityId) !== value || this._inFlight.has(entityId) || this._sendQueue.includes(entityId) || this._debounceTimers.has(entityId)) return;
+      if (this._getEntityValue(entityId) === value) {
+        this._clearAcknowledged(entityId, value);
+        return;
+      }
+      const updated = new Map(this._pendingValues);
+      updated.delete(entityId);
+      this._pendingValues = updated;
+      this._showError(entityId);
+    }, EconextScheduleCard.ACK_TIMEOUT_MS);
+    this._ackTimers.set(entityId, timer);
+  }
+
+  private _clearAcknowledged(entityId: string, value: number): void {
+    if (this._pendingValues.get(entityId) !== value) return;
+    const timer = this._ackTimers.get(entityId);
+    if (timer) clearTimeout(timer);
+    this._ackTimers.delete(entityId);
+    const updated = new Map(this._pendingValues);
+    updated.delete(entityId);
+    this._pendingValues = updated;
   }
 
   private _showError(entityId: string): void {
@@ -250,10 +276,13 @@ export class EconextScheduleCard extends LitElement {
     if (changedProperties.has('hass') && this._pendingValues.size > 0) {
       const toRemove: string[] = [];
       for (const [entityId, pendingValue] of this._pendingValues) {
-        if (!this._debounceTimers.has(entityId)) {
+        if (!this._debounceTimers.has(entityId) && !this._inFlight.has(entityId) && !this._sendQueue.includes(entityId)) {
           const haValue = this._getEntityValue(entityId);
           if (haValue === pendingValue) {
             toRemove.push(entityId);
+            const timer = this._ackTimers.get(entityId);
+            if (timer) clearTimeout(timer);
+            this._ackTimers.delete(entityId);
           }
         }
       }
@@ -274,6 +303,9 @@ export class EconextScheduleCard extends LitElement {
     }
     this._debounceTimers.clear();
     this._sendQueue = [];
+    this._inFlight.clear();
+    for (const timer of this._ackTimers.values()) clearTimeout(timer);
+    this._ackTimers.clear();
   }
 
   protected render(): TemplateResult {
@@ -395,7 +427,11 @@ export class EconextScheduleCard extends LitElement {
             slotIndex === currentSlot;
 
           return html`
-            <div
+            <button
+              type="button"
+              ?disabled=${!editable}
+              aria-label="${slotToTime(slotIndex)} ${active ? "active" : "inactive"}"
+              aria-pressed=${active}
               class="schedule-cell ${classMap({
                 active,
                 inactive: !active,
@@ -408,7 +444,7 @@ export class EconextScheduleCard extends LitElement {
               title="${slotToTime(slotIndex)} - ${active ? 'Active' : 'Inactive'}"
               @click=${() =>
                 this._handleCellClick(daySchedule.day, slotIndex)}
-            ></div>
+            ></button>
           `;
         })}
       </div>

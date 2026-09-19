@@ -95,19 +95,25 @@ export const cardStyles = css`
 
   /* Schedule cells row */
   .schedule-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(24, minmax(0, 1fr));
     gap: var(--cell-gap);
     width: 100%;
   }
 
   .schedule-cell {
-    flex: 1;
     min-width: 0;
+    min-height: 48px;
     height: var(--cell-height);
+    padding: 0;
+    border: 0;
+    touch-action: manipulation;
     border-radius: var(--border-radius);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     cursor: pointer;
   }
+
+  .schedule-cell:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 1px; }
 
   .schedule-cell.active {
     background-color: var(--active-color);
@@ -140,7 +146,7 @@ export const cardStyles = css`
 
   /* Time labels below schedule */
   .time-labels {
-    display: flex;
+    display: none;
     gap: var(--cell-gap);
     margin-top: 6px;
     width: 100%;
@@ -191,6 +197,9 @@ export const cardStyles = css`
 
   /* Mobile responsiveness */
   @media (max-width: 600px) {
+    .schedule-row { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .schedule-cell { min-height: 48px; }
+
     :host {
       --cell-height: 32px;
     }
