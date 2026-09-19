@@ -38,6 +38,8 @@ export class EconextScheduleCard extends LitElement {
   private _sendQueue: string[] = [];
   private _queueProcessing = false;
   private _inFlight: Map<string, number> = new Map();
+  private _ackTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private static readonly ACK_TIMEOUT_MS = 15000;
 
   private static readonly DEBOUNCE_MS = 500;
   private static readonly MAX_RETRIES = 2;
@@ -136,6 +138,9 @@ export class EconextScheduleCard extends LitElement {
     this._pendingValues = new Map(this._pendingValues);
     this._pendingValues.set(entityId, newValue);
 
+    const ackTimer = this._ackTimers.get(entityId);
+    if (ackTimer) clearTimeout(ackTimer);
+    this._ackTimers.delete(entityId);
     this._scheduleSend(entityId);
   }
 
@@ -184,6 +189,8 @@ export class EconextScheduleCard extends LitElement {
             this._pendingValues = updated;
           }
           this._showError(entityId);
+        } else if (latest === value) {
+          this._awaitAcknowledgement(entityId, value);
         } else if (latest !== undefined && latest !== value) {
           if (!this._sendQueue.includes(entityId) && !this._debounceTimers.has(entityId)) {
             this._sendQueue.push(entityId);
@@ -214,6 +221,38 @@ export class EconextScheduleCard extends LitElement {
     return false;
   }
 
+  private _awaitAcknowledgement(entityId: string, value: number): void {
+    const existing = this._ackTimers.get(entityId);
+    if (existing) clearTimeout(existing);
+    if (this._getEntityValue(entityId) === value) {
+      this._clearAcknowledged(entityId, value);
+      return;
+    }
+    const timer = setTimeout(() => {
+      this._ackTimers.delete(entityId);
+      if (this._pendingValues.get(entityId) !== value) return;
+      if (this._getEntityValue(entityId) === value) {
+        this._clearAcknowledged(entityId, value);
+        return;
+      }
+      const updated = new Map(this._pendingValues);
+      updated.delete(entityId);
+      this._pendingValues = updated;
+      this._showError(entityId);
+    }, EconextScheduleCard.ACK_TIMEOUT_MS);
+    this._ackTimers.set(entityId, timer);
+  }
+
+  private _clearAcknowledged(entityId: string, value: number): void {
+    if (this._pendingValues.get(entityId) !== value) return;
+    const timer = this._ackTimers.get(entityId);
+    if (timer) clearTimeout(timer);
+    this._ackTimers.delete(entityId);
+    const updated = new Map(this._pendingValues);
+    updated.delete(entityId);
+    this._pendingValues = updated;
+  }
+
   private _showError(entityId: string): void {
     this._errorEntityIds = new Set([...this._errorEntityIds, entityId]);
 
@@ -241,6 +280,9 @@ export class EconextScheduleCard extends LitElement {
           const haValue = this._getEntityValue(entityId);
           if (haValue === pendingValue) {
             toRemove.push(entityId);
+            const timer = this._ackTimers.get(entityId);
+            if (timer) clearTimeout(timer);
+            this._ackTimers.delete(entityId);
           }
         }
       }
@@ -262,6 +304,8 @@ export class EconextScheduleCard extends LitElement {
     this._debounceTimers.clear();
     this._sendQueue = [];
     this._inFlight.clear();
+    for (const timer of this._ackTimers.values()) clearTimeout(timer);
+    this._ackTimers.clear();
   }
 
   protected render(): TemplateResult {
