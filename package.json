@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "rollup -c",
-    "watch": "rollup -c -w"
+    "watch": "rollup -c -w",
+    "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^15.2.3",
